@@ -4,7 +4,7 @@
 // - protoc             v5.27.3
 // source: v1/tunnel.proto
 
-package tunnelv1
+package v1
 
 import (
 	context "context"

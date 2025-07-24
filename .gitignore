@@ -1,0 +1,4 @@
+bin/
+_output/
+coverage.out
+coverprofile.out

@@ -4,14 +4,15 @@
 // 	protoc        v5.27.3
 // source: v1/tunnel.proto
 
-package tunnelv1
+package v1
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -28,43 +29,24 @@ type ControlCode int32
 const (
 	// Default value, indicates this is a standard business data packet
 	ControlCode_DATA ControlCode = 0
-	// Indicates that the data stream corresponding to a stream_id has ended normally
-	// The data field should be empty when sending this packet
-	ControlCode_STREAM_EOF ControlCode = 1
-	// Indicates an error occurred in processing the stream for a stream_id
+	// Indicates an error occurred in processing the CONN for a conn_id
 	// The error_message field should contain error details
-	ControlCode_STREAM_ERROR ControlCode = 2
-	// Sent by the Hub side to check tunnel health
-	// stream_id can be 0 or a random number
-	ControlCode_PING ControlCode = 3
-	// Sent by the Agent side in response to PING, to confirm tunnel health
-	// stream_id should match the received PING packet
-	ControlCode_PONG ControlCode = 4
-	// Graceful shutdown: Sent by either side to notify the peer it will soon go offline and should not assign new streams
-	ControlCode_DRAIN ControlCode = 5
-	// Explicit acknowledgement of stream closure, sent in response to STREAM_EOF for strict confirmation
-	ControlCode_STREAM_EOF_ACK ControlCode = 6
+	ControlCode_ERROR ControlCode = 1
+	// Graceful shutdown: Sent by agent to hub to indicate it's about to go offline
+	ControlCode_DRAIN ControlCode = 2
 )
 
 // Enum value maps for ControlCode.
 var (
 	ControlCode_name = map[int32]string{
 		0: "DATA",
-		1: "STREAM_EOF",
-		2: "STREAM_ERROR",
-		3: "PING",
-		4: "PONG",
-		5: "DRAIN",
-		6: "STREAM_EOF_ACK",
+		1: "ERROR",
+		2: "DRAIN",
 	}
 	ControlCode_value = map[string]int32{
-		"DATA":           0,
-		"STREAM_EOF":     1,
-		"STREAM_ERROR":   2,
-		"PING":           3,
-		"PONG":           4,
-		"DRAIN":          5,
-		"STREAM_EOF_ACK": 6,
+		"DATA":  0,
+		"ERROR": 1,
+		"DRAIN": 2,
 	}
 )
 
@@ -100,17 +82,15 @@ type Packet struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Used to associate requests and responses, implements multiplexing ID
 	// For tunnel-level messages (such as PING/PONG/DRAIN), can be 0
-	StreamId int64 `protobuf:"varint,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
+	ConnId int64 `protobuf:"varint,1,opt,name=conn_id,json=connId,proto3" json:"conn_id,omitempty"`
 	// [Key optimization] The intent code of the packet, makes processing logic clearer
 	Code ControlCode `protobuf:"varint,2,opt,name=code,proto3,enum=tunnel.v1.ControlCode" json:"code,omitempty"`
 	// Business payload, only meaningful when code = DATA
 	Data []byte `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
-	// Metadata, used for routing, tracing, etc., provides design flexibility
-	// Strongly recommend to standardize key names for routing (e.g., {"host": "...", "port": "..."})
-	// and document any required headers for interoperability.
-	Headers map[string]string `protobuf:"bytes,4,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// Error message, only meaningful when code = STREAM_ERROR
-	ErrorMessage  string `protobuf:"bytes,5,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	// Error message, only meaningful when code = ERROR
+	ErrorMessage string `protobuf:"bytes,4,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	// Target service address for routing
+	TargetAddress string `protobuf:"bytes,5,opt,name=target_address,json=targetAddress,proto3" json:"target_address,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -145,9 +125,9 @@ func (*Packet) Descriptor() ([]byte, []int) {
 	return file_v1_tunnel_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *Packet) GetStreamId() int64 {
+func (x *Packet) GetConnId() int64 {
 	if x != nil {
-		return x.StreamId
+		return x.ConnId
 	}
 	return 0
 }
@@ -166,16 +146,16 @@ func (x *Packet) GetData() []byte {
 	return nil
 }
 
-func (x *Packet) GetHeaders() map[string]string {
-	if x != nil {
-		return x.Headers
-	}
-	return nil
-}
-
 func (x *Packet) GetErrorMessage() string {
 	if x != nil {
 		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *Packet) GetTargetAddress() string {
+	if x != nil {
+		return x.TargetAddress
 	}
 	return ""
 }
@@ -184,27 +164,19 @@ var File_v1_tunnel_proto protoreflect.FileDescriptor
 
 const file_v1_tunnel_proto_rawDesc = "" +
 	"\n" +
-	"\x0fv1/tunnel.proto\x12\ttunnel.v1\"\x80\x02\n" +
-	"\x06Packet\x12\x1b\n" +
-	"\tstream_id\x18\x01 \x01(\x03R\bstreamId\x12*\n" +
+	"\x0fv1/tunnel.proto\x12\ttunnel.v1\"\xad\x01\n" +
+	"\x06Packet\x12\x17\n" +
+	"\aconn_id\x18\x01 \x01(\x03R\x06connId\x12*\n" +
 	"\x04code\x18\x02 \x01(\x0e2\x16.tunnel.v1.ControlCodeR\x04code\x12\x12\n" +
-	"\x04data\x18\x03 \x01(\fR\x04data\x128\n" +
-	"\aheaders\x18\x04 \x03(\v2\x1e.tunnel.v1.Packet.HeadersEntryR\aheaders\x12#\n" +
-	"\rerror_message\x18\x05 \x01(\tR\ferrorMessage\x1a:\n" +
-	"\fHeadersEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*l\n" +
+	"\x04data\x18\x03 \x01(\fR\x04data\x12#\n" +
+	"\rerror_message\x18\x04 \x01(\tR\ferrorMessage\x12%\n" +
+	"\x0etarget_address\x18\x05 \x01(\tR\rtargetAddress*-\n" +
 	"\vControlCode\x12\b\n" +
-	"\x04DATA\x10\x00\x12\x0e\n" +
-	"\n" +
-	"STREAM_EOF\x10\x01\x12\x10\n" +
-	"\fSTREAM_ERROR\x10\x02\x12\b\n" +
-	"\x04PING\x10\x03\x12\b\n" +
-	"\x04PONG\x10\x04\x12\t\n" +
-	"\x05DRAIN\x10\x05\x12\x12\n" +
-	"\x0eSTREAM_EOF_ACK\x10\x062E\n" +
+	"\x04DATA\x10\x00\x12\t\n" +
+	"\x05ERROR\x10\x01\x12\t\n" +
+	"\x05DRAIN\x10\x022E\n" +
 	"\rTunnelService\x124\n" +
-	"\x06Tunnel\x12\x11.tunnel.v1.Packet\x1a\x11.tunnel.v1.Packet\"\x00(\x010\x01B:Z8github.com/xuezhaojun/multiclustertunnel/api/v1;tunnelv1b\x06proto3"
+	"\x06Tunnel\x12\x11.tunnel.v1.Packet\x1a\x11.tunnel.v1.Packet\"\x00(\x010\x01B1Z/github.com/xuezhaojun/multiclustertunnel/api/v1b\x06proto3"
 
 var (
 	file_v1_tunnel_proto_rawDescOnce sync.Once
@@ -219,22 +191,20 @@ func file_v1_tunnel_proto_rawDescGZIP() []byte {
 }
 
 var file_v1_tunnel_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_v1_tunnel_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_v1_tunnel_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_v1_tunnel_proto_goTypes = []any{
 	(ControlCode)(0), // 0: tunnel.v1.ControlCode
 	(*Packet)(nil),   // 1: tunnel.v1.Packet
-	nil,              // 2: tunnel.v1.Packet.HeadersEntry
 }
 var file_v1_tunnel_proto_depIdxs = []int32{
 	0, // 0: tunnel.v1.Packet.code:type_name -> tunnel.v1.ControlCode
-	2, // 1: tunnel.v1.Packet.headers:type_name -> tunnel.v1.Packet.HeadersEntry
-	1, // 2: tunnel.v1.TunnelService.Tunnel:input_type -> tunnel.v1.Packet
-	1, // 3: tunnel.v1.TunnelService.Tunnel:output_type -> tunnel.v1.Packet
-	3, // [3:4] is the sub-list for method output_type
-	2, // [2:3] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	1, // 1: tunnel.v1.TunnelService.Tunnel:input_type -> tunnel.v1.Packet
+	1, // 2: tunnel.v1.TunnelService.Tunnel:output_type -> tunnel.v1.Packet
+	2, // [2:3] is the sub-list for method output_type
+	1, // [1:2] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_v1_tunnel_proto_init() }
@@ -248,7 +218,7 @@ func file_v1_tunnel_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_tunnel_proto_rawDesc), len(file_v1_tunnel_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   2,
+			NumMessages:   1,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
