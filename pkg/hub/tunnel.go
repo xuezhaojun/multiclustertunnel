@@ -112,7 +112,7 @@ func (t *Tunnel) handleOutgoing() error {
 // handleDataPacket processes a DATA packet
 func (t *Tunnel) handleDataPacket(packet *v1.Packet) {
 	t.mu.RLock()
-	stream, exists := t.packetConns[packet.ConnId]
+	pc, exists := t.packetConns[packet.ConnId]
 	t.mu.RUnlock()
 
 	if exists {
@@ -121,34 +121,34 @@ func (t *Tunnel) handleDataPacket(packet *v1.Packet) {
 			defer func() {
 				if r := recover(); r != nil {
 					// Channel was closed, ignore the packet
-					klog.V(4).InfoS("Dropping packet for closed stream", "packet_connection_id", packet.ConnId)
+					klog.V(4).InfoS("Dropping packet for closed packet connection", "packet_connection_id", packet.ConnId)
 				}
 			}()
 
-			// Check if stream context is cancelled (connection closed)
+			// Check if packet connection context is cancelled (connection closed)
 			select {
-			case <-stream.ctx.Done():
+			case <-pc.ctx.Done():
 				// Stream is closed, drop the packet
-				klog.V(4).InfoS("Dropping packet for closed stream", "packet_connection_id", packet.ConnId)
+				klog.V(4).InfoS("Dropping packet for closed packet connection", "packet_connection_id", packet.ConnId)
 			default:
-				// Send to existing stream
+				// Send to existing packet connection
 				select {
-				case stream.incomingChan <- packet:
-				case <-stream.ctx.Done():
+				case pc.incomingChan <- packet:
+				case <-pc.ctx.Done():
 					// Stream was closed while we were trying to send
-					klog.V(4).InfoS("Dropping packet for closed stream", "packet_connection_id", packet.ConnId)
+					klog.V(4).InfoS("Dropping packet for closed packet connection", "packet_connection_id", packet.ConnId)
 				default:
 					klog.Warningf("Stream %d incoming channel is full, dropping packet", packet.ConnId)
 				}
 			}
 		}()
 	} else {
-		klog.Warningf("Received packet for unknown stream %d", packet.ConnId)
+		klog.Warningf("Received packet for unknown packet connection %d", packet.ConnId)
 		// Send error response
 		errorPacket := &v1.Packet{
 			ConnId:       packet.ConnId,
 			Code:         v1.ControlCode_ERROR,
-			ErrorMessage: fmt.Sprintf("unknown stream %d", packet.ConnId),
+			ErrorMessage: fmt.Sprintf("unknown packet connection %d", packet.ConnId),
 		}
 		select {
 		case t.outgoingChan <- errorPacket:
@@ -161,17 +161,17 @@ func (t *Tunnel) handleDataPacket(packet *v1.Packet) {
 // handleErrorPacket processes an ERROR packet
 func (t *Tunnel) handleErrorPacket(packet *v1.Packet) {
 	t.mu.RLock()
-	stream, exists := t.packetConns[packet.ConnId]
+	pc, exists := t.packetConns[packet.ConnId]
 	t.mu.RUnlock()
 
 	if exists {
 		// Use a safe send that handles closed channels gracefully
-		t.safeSendToStream(stream, packet)
+		t.safeSendToStream(pc, packet)
 	}
 }
 
-// safeSendToStream safely sends a packet to a stream's incoming channel
-func (t *Tunnel) safeSendToStream(stream *packetConnection, packet *v1.Packet) {
+// safeSendToStream safely sends a packet to a packet connection's incoming channel
+func (t *Tunnel) safeSendToStream(pc *packetConnection, packet *v1.Packet) {
 	// Use a defer/recover to handle potential panic from sending to closed channel
 	defer func() {
 		if r := recover(); r != nil {
@@ -180,10 +180,10 @@ func (t *Tunnel) safeSendToStream(stream *packetConnection, packet *v1.Packet) {
 		}
 	}()
 
-	// Check if the stream context is cancelled (connection closed)
+	// Check if the packet connection context is cancelled (connection closed)
 	select {
-	case <-stream.ctx.Done():
-		klog.V(4).InfoS("Dropping packet for closed stream", "packet_connection_id", packet.ConnId)
+	case <-pc.ctx.Done():
+		klog.V(4).InfoS("Dropping packet for closed packet connection", "packet_connection_id", packet.ConnId)
 		return
 	default:
 		// Context is not cancelled, proceed with sending
@@ -191,14 +191,14 @@ func (t *Tunnel) safeSendToStream(stream *packetConnection, packet *v1.Packet) {
 
 	// Try to send the packet with a non-blocking send
 	select {
-	case stream.incomingChan <- packet:
+	case pc.incomingChan <- packet:
 		// Successfully sent
-	case <-stream.ctx.Done():
+	case <-pc.ctx.Done():
 		// Stream was closed while we were trying to send
-		klog.V(4).InfoS("Dropping packet for closed stream", "packet_connection_id", packet.ConnId)
+		klog.V(4).InfoS("Dropping packet for closed packet connection", "packet_connection_id", packet.ConnId)
 	default:
 		// Channel is full, drop the packet
-		klog.V(4).InfoS("Dropping packet for full stream", "packet_connection_id", packet.ConnId)
+		klog.V(4).InfoS("Dropping packet for full packet connection", "packet_connection_id", packet.ConnId)
 	}
 }
 

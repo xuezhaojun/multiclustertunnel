@@ -126,16 +126,16 @@ func (c *Client) establishAndServe(ctx context.Context) error {
 		return fmt.Errorf("failed to create grpc stream for tunnel: %w", err)
 	}
 
-	return c.serve(grpcStream)
+	return c.serve(ctx, grpcStream)
 }
 
 // serve manages a single active gRPC stream for tunnel.
 // It blocks until the stream is terminated.
-func (c *Client) serve(stream v1.TunnelService_TunnelClient) error {
+func (c *Client) serve(ctx context.Context, stream v1.TunnelService_TunnelClient) error {
 	klog.InfoS("GRPC stream started")
 	defer klog.InfoS("GRPC stream ended")
 
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 3)
 
 	// --- Goroutine 1: Handle packets from Hub ---
 	go func() {
@@ -145,6 +145,37 @@ func (c *Client) serve(stream v1.TunnelService_TunnelClient) error {
 	// --- Goroutine 2: Handle packets to Hub ---
 	go func() {
 		errCh <- c.processOutgoing(stream)
+	}()
+
+	// --- Goroutine 3: Handle graceful shutdown ---
+	go func() {
+		<-ctx.Done()
+		klog.InfoS("Context canceled, sending DRAIN signal to Hub")
+
+		// Send DRAIN packet to Hub to indicate graceful shutdown
+		drainPacket := &v1.Packet{
+			ConnId: 0, // Use 0 for control messages
+			Code:   v1.ControlCode_DRAIN,
+		}
+
+		// Try to send DRAIN packet with a timeout to avoid blocking indefinitely
+		done := make(chan error, 1)
+		go func() {
+			done <- stream.Send(drainPacket)
+		}()
+
+		select {
+		case err := <-done:
+			if err != nil {
+				klog.ErrorS(err, "Failed to send DRAIN packet to Hub")
+			} else {
+				klog.InfoS("DRAIN packet sent to Hub successfully")
+			}
+		case <-time.After(100 * time.Millisecond):
+			klog.InfoS("Timeout sending DRAIN packet to Hub")
+		}
+
+		errCh <- ctx.Err()
 	}()
 
 	// Wait for any goroutine to exit (i.e., stream error or closure)

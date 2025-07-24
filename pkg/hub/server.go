@@ -438,13 +438,13 @@ func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create new packet connection
-	stream, err := tun.NewPacketConn(ctx)
+	pc, err := tun.NewPacketConn(ctx)
 	if err != nil {
 		klog.ErrorS(err, "Failed to create packet connection to cluster", "cluster", clusterName)
 		http.Error(w, fmt.Sprintf("Cluster %s not available: %v", clusterName, err), http.StatusServiceUnavailable)
 		return
 	}
-	defer stream.Close(nil)
+	defer pc.Close(nil)
 
 	// Hijack the HTTP connection to create a transparent tunnel
 	hijacker, ok := w.(http.Hijacker)
@@ -458,27 +458,27 @@ func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// NOTE: TargetAddress is required here because this is the first packet that tells
 	// the agent which target service to connect to. This establishes the connection.
 	initialPacket := &v1.Packet{
-		ConnId:        stream.ID(),
+		ConnId:        pc.ID(),
 		Code:          v1.ControlCode_DATA,
 		Data:          []byte{}, // Empty data to trigger connection creation
 		TargetAddress: targetAddress,
 	}
 
-	if err := stream.Send(initialPacket); err != nil {
+	if err := pc.Send(initialPacket); err != nil {
 		klog.ErrorS(err, "Failed to send initial packet to agent", "cluster", clusterName)
 		http.Error(w, "Failed to establish tunnel", http.StatusBadGateway)
 		return
 	}
 
 	// Send the original HTTP request to establish the connection and start communication
-	if err := h.sendInitialHTTPRequest(stream, r, targetAddress); err != nil {
+	if err := h.sendInitialHTTPRequest(pc, r, targetAddress); err != nil {
 		klog.ErrorS(err, "Failed to send initial HTTP request to agent")
 		http.Error(w, "Failed to establish tunnel", http.StatusBadGateway)
 		return
 	}
 
 	// Note: We removed the immediate error check here because it was consuming
-	// the first packet from the stream, causing data loss. Instead, we'll let
+	// the first packet from the packet connection, causing data loss. Instead, we'll let
 	// the forwardTraffic method handle any errors that occur during data transfer.
 
 	// Hijack the connection
@@ -489,10 +489,10 @@ func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer clientConn.Close()
 
-	klog.V(4).InfoS("Established HTTP tunnel", "cluster", clusterName, "packet_connection_id", stream.ID())
+	klog.V(4).InfoS("Established HTTP tunnel", "cluster", clusterName, "packet_connection_id", pc.ID())
 
 	// Start transparent data forwarding between client and agent
-	h.forwardTraffic(ctx, clientConn, stream)
+	h.forwardTraffic(ctx, clientConn, pc)
 }
 
 // forwardTraffic handles bidirectional data forwarding between client and agent

@@ -397,9 +397,47 @@ func TestClientServe(t *testing.T) {
 		recvErr := errors.New("recv error")
 		mockStream.On("Recv").Return(nil, recvErr).Once()
 
-		err := client.serve(mockStream)
+		ctx := context.Background()
+		err := client.serve(ctx, mockStream)
 		assert.Equal(t, recvErr, err)
 		mockStream.AssertExpectations(t)
+	})
+
+	t.Run("context cancellation sends DRAIN packet", func(t *testing.T) {
+		mockStream := newMockTunnelClient()
+		mockProxyMgr := newMockClientProxyManager()
+
+		client := &Client{
+			lcm: mockProxyMgr,
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+
+		// Setup mock to block on Recv (processIncoming will wait)
+		mockStream.On("Recv").Return(nil, context.Canceled).Maybe()
+
+		// Setup mock to expect DRAIN packet to be sent
+		mockStream.On("Send", mock.MatchedBy(func(p *v1.Packet) bool {
+			return p.ConnId == 0 && p.Code == v1.ControlCode_DRAIN
+		})).Return(nil).Once()
+
+		// Setup mock for outgoing channel (processOutgoing might be called)
+		mockProxyMgr.On("OutgoingChan").Return(mockProxyMgr.outgoingChan).Maybe()
+
+		// Cancel context after a short delay to trigger DRAIN
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			cancel()
+		}()
+
+		err := client.serve(ctx, mockStream)
+		assert.Equal(t, context.Canceled, err)
+
+		// Give time for goroutines to complete
+		time.Sleep(20 * time.Millisecond)
+
+		mockStream.AssertExpectations(t)
+		// Don't assert on mockProxyMgr since OutgoingChan might not be called
 	})
 }
 
@@ -487,7 +525,8 @@ func TestClientIntegration(t *testing.T) {
 		}()
 
 		// Start serve (this will run both processIncoming and processOutgoing)
-		err := client.serve(mockStream)
+		ctx := context.Background()
+		err := client.serve(ctx, mockStream)
 
 		// Should get EOF from processIncoming or "outgoing channel closed" from processOutgoing
 		assert.True(t, err == io.EOF || (err != nil && err.Error() == "outgoing channel closed"))
