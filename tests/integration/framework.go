@@ -497,3 +497,8 @@ func (m *MockServer) ClearRequests() {
 	defer m.mu.Unlock()
 	m.requests = m.requests[:0]
 }
+
+// GetGRPCListener creates a new gRPC listener for custom testing
+func (f *TestFramework) GetGRPCListener() (net.Listener, error) {
+	return net.Listen("tcp", "127.0.0.1:0")
+}

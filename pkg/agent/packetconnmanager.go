@@ -157,22 +157,47 @@ func (p *packetConnManagerImpl) handleDataPacket(packet *v1.Packet) error {
 		return p.createConnection(packet)
 	}
 
-	// Check if the connection is still valid before sending
-	// Use atomic load to check if the incoming channel is closed
-	if atomic.LoadInt32(&lc.incomingClosed) == 1 {
-		// Connection is already closed, don't try to send
-		return fmt.Errorf("connection %d is already closed", connID)
-	}
-
 	// Send packet to connection's incoming channel for sequential processing
+	// Use a safe send function to handle potential channel closure
+	return p.safeSendToConnection(lc, packet, connID)
+}
+
+// safeSendToConnection safely sends a packet to a connection's incoming channel
+// It handles the race condition between sending and channel closure
+func (p *packetConnManagerImpl) safeSendToConnection(lc *packetConn, packet *v1.Packet, connID int64) error {
+	// Use a defer/recover to catch panics from sending on closed channels
+	defer func() {
+		if r := recover(); r != nil {
+			// This can happen if the channel is closed between our check and send
+			klog.V(4).InfoS("Recovered from panic when sending to connection", "conn_id", connID, "panic", r)
+		}
+	}()
+
+	// First, try to send without blocking
 	select {
 	case lc.incoming <- packet:
 		return nil
 	case <-lc.ctx.Done():
-		// Connection is being closed
 		return fmt.Errorf("local connection %d is closing", connID)
 	case <-p.ctx.Done():
 		return fmt.Errorf("local connection manager is closing")
+	default:
+		// Channel might be full or closed, check the atomic flag
+		if atomic.LoadInt32(&lc.incomingClosed) == 1 {
+			return fmt.Errorf("connection %d is already closed", connID)
+		}
+
+		// Try again with a timeout
+		select {
+		case lc.incoming <- packet:
+			return nil
+		case <-lc.ctx.Done():
+			return fmt.Errorf("local connection %d is closing", connID)
+		case <-p.ctx.Done():
+			return fmt.Errorf("local connection manager is closing")
+		case <-time.After(100 * time.Millisecond):
+			return fmt.Errorf("timeout sending packet to connection %d", connID)
+		}
 	}
 }
 
