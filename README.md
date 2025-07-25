@@ -21,31 +21,37 @@ Key goals:
 
 ```mermaid
 flowchart TD
-  subgraph User Layer
-    Client["Client"]
-    Service["Service / kube-apiserver / ..."]
-  end
-
-  subgraph Developer Layer
-    Router["Router"]
-  end
-
-  subgraph Core Layer
-    subgraph TunnelServer
-      GRPC-Server["GRPC-Server"]
-    end
-    subgraph TunnelClient
-      GRPC-Client["GRPC-Client"]
+  subgraph Hub Cluster
+    Client["Client<br/>(console, kubectl, operator)"]
+    Router["Router<br/>(Parse cluster & target address)"]
+    subgraph Hub Server
+      HTTPHandler["HTTP Handler<br/>(TCP Hijacking)"]
+      PacketConnServer["Packet Connection<br/>(Server Side)"]
+      TunnelServer["Tunnel<br/>(gRPC Server)"]
     end
   end
 
-  Client -->|"HTTP Request"| Router
-  Router -->|"Parse cluster & target address"| GRPC-Server
-  GRPC-Server <--> |"gRPC Tunnel (bi-directional)"| GRPC-Client
-  GRPC-Client -->|"Forward to target address"| Service
+  subgraph Managed Cluster
+    subgraph Agent
+      TunnelClient["Tunnel<br/>(gRPC Client)"]
+      PacketConnAgent["Packet Connection<br/>(Agent Side)"]
+      ConnManager["Connection Manager<br/>(net.Conn pool)"]
+    end
+    Service["Target Service<br/>(kube-apiserver, etc.)"]
+  end
+
+  Client -->|"HTTP Request"| HTTPHandler
+  HTTPHandler -->|"Parse request"| Router
+  Router -->|"cluster, targetAddress"| PacketConnServer
+  PacketConnServer -->|"Packet with conn_id"| TunnelServer
+  TunnelServer <-->|"gRPC Stream<br/>(Packet transmission)"| TunnelClient
+  TunnelClient -->|"Dispatch by conn_id"| PacketConnAgent
+  PacketConnAgent -->|"net.Conn"| ConnManager
+  ConnManager -->|"Forward to target"| Service
 ```
 
-- **1 Tunnel / 1 Cluster**: Each Managed Cluster initiates and maintains a persistent connection via **GRPC-Client** at startup, reducing firewall and NAT traversal complexity.
+- **1 Tunnel / 1 Cluster**: Each Managed Cluster initiates and maintains a persistent gRPC connection via the **Agent** at startup, reducing firewall and NAT traversal complexity.
+- **Packet-based Multiplexing**: Multiple client connections are multiplexed over a single tunnel using `conn_id` for packet routing.
 
 ## Architecture Constraints
 
@@ -66,116 +72,124 @@ These constraints ensure:
 
 | Feature                            | Description                                                                       |
 | ---------------------------------- | --------------------------------------------------------------------------------- |
-| **Multi-Protocol**                 | Built-in support for HTTP (REST/Proxy) and gRPC; extendable via Adapter           |
-| **Single Connection Multiplexing** | All logical streams are multiplexed over a single gRPC stream, saving connections |
-| **Dynamic Routing**                | On-demand forwarding based on `managed_cluster_name` + header metadata            |
-| **Bi-directional Communication**   | Supports both Hub → Cluster requests and Agent → Hub reporting                    |
-| **Minimal Privileges**             | Only requires outbound dialing from sub-clusters, no Ingress exposure             |
+| **Packet-based Protocol**          | Uses structured Packet messages with conn_id for multiplexing and control codes  |
+| **Single Connection Multiplexing** | All logical connections are multiplexed over a single gRPC stream using conn_id  |
+| **Dynamic Routing**                | Router interface allows custom parsing logic for cluster and service routing     |
+| **TCP Connection Hijacking**       | Direct TCP stream access for transparent data forwarding                         |
+| **Sequential Packet Processing**   | Packets with same conn_id are processed sequentially to maintain order           |
+| **Minimal Privileges**             | Only requires outbound dialing from managed clusters, no Ingress exposure        |
 
----
+## Packet Structure & Connection Management
 
-## Quick Start
+### Packet Protocol
+Each packet transmitted through the tunnel contains:
+- `conn_id`: Unique identifier for multiplexing multiple logical connections
+- `code`: Control code (DATA, ERROR, DRAIN) defining packet intent
+- `data`: Business payload for DATA packets
+- `target_address`: Target service address (used during connection establishment)
 
-> **Prerequisites**: Go 1.22+, Docker / Podman, Kubernetes 1.25+
-
-```bash
-# 1. Start Hub-side components
-make run-hub          # Defaults to 0.0.0.0:8080 (Router) & 8443 (GRPC-Server)
-
-# 2. Start Agent on Managed Cluster
-# Assume KUBECONFIG is configured
-make run-agent \
-  HUB_ADDR="hub.example.com:8443" \
-  CLUSTER_NAME="cluster-a"
-
-# 3. Test request
-curl -k "https://hub.example.com:8080/cluster-a/api/v1/namespaces/default/services/https:helloworld:8080/proxy-service/ping?time-out=32s"
-```
-
-> _For more local development and Helm Chart deployment examples, see [`docs/tutorials`](./docs/tutorials)._
+### Connection Lifecycle
+1. **Establishment**: Initial packets include `target_address` to tell agent which service to connect to
+2. **Data Transfer**: Subsequent packets omit `target_address` for performance optimization
+3. **Sequential Processing**: Packets with same `conn_id` are processed sequentially to maintain order
+4. **Multiplexing**: Different `conn_id` values can be processed asynchronously for better performance
 
 ## Request Lifecycle
 
-1. **Client → Router**
-   Client sends HTTP requests to Router. Users can include routing information in the request path, parameters, or headers to help determine the target destination.
+1. **Client → HTTP Handler**
+   Client sends HTTP requests to the hub server. The HTTP handler receives the request and uses the Router to parse routing information from the request path, parameters, or headers.
 
-2. **Router → GRPC-Server**
-   Router implements custom parsing logic based on the HTTP request's path, parameters, and headers to determine which managed cluster the request should be routed to and the target service address. It then forwards the HTTP request through the established gRPC tunnel to the corresponding grpc-client.
+2. **Router Parsing**
+   Router implements custom parsing logic to extract:
+   - `cluster`: The name of the managed cluster to route the request to
+   - `targetAddress`: The target service address within the managed cluster (set in packet.TargetAddress)
 
-3. **GRPC-Server ↔ GRPC-Client**
-   The HTTP request is transmitted through the persistent gRPC tunnel to the target managed cluster.
+3. **Packet Connection Creation**
+   The hub server creates a new packet connection for this client request and establishes a logical connection through the tunnel to the target cluster.
 
-4. **GRPC-Client → Target Service**
-   The grpc-client receives the request and forwards it directly to the target service address specified by the Router.
+4. **Connection Establishment**
+   - An initial empty packet with `TargetAddress` is sent to establish the connection on the agent side
+   - The original HTTP request is then sent as a data packet (also with `TargetAddress` during establishment phase)
+   - The agent receives these packets and creates a `net.Conn` to the specified target service
 
-5. **Response Path**
-   The response travels back through the same tunnel path: Target Service → GRPC-Client → GRPC-Server → Router → Client.
+5. **TCP Hijacking & Data Forwarding**
+   - The HTTP connection is hijacked to access the underlying TCP stream
+   - Bidirectional data forwarding begins between the client TCP connection and the packet connection
+   - Subsequent data packets omit `TargetAddress` for performance optimization
 
-## Security
+6. **Response Path**
+   The response travels back through the same path: Target Service → Agent (net.Conn) → Tunnel → Hub Server → Client TCP connection.
 
-### TLS Encryption
+## Router Interface
 
-The multiclustertunnel supports TLS encryption for secure communication between agents and the hub server. This is essential for production deployments where agents and the hub are deployed across different networks.
+The Router is a key abstraction that allows developers to implement custom routing logic. It defines how HTTP requests are parsed to determine the target cluster and service:
 
-**Hub Server TLS Configuration:**
 ```go
-config := &hub.Config{
-    GRPCListenAddress: ":8443",
-    HTTPListenAddress: ":8080",
-    Router:            router,
-    TLSConfig: &tls.Config{
-        Certificates: []tls.Certificate{cert},
-    },
+type Router interface {
+    // Parse extracts the target cluster name and target address from the HTTP request
+    // cluster: the name of the managed cluster to route the request to
+    // targetAddress: the target service address within the managed cluster (will be set in packet.TargetAddress)
+    Parse(r *http.Request) (cluster, targetAddress string, err error)
 }
 ```
 
-**Agent TLS Configuration:**
+### Example Router Implementation
+
 ```go
-config := &agent.Config{
-    HubAddress:  "hub.example.com:8443",
-    ClusterName: "cluster-a",
-    DialOptions: []grpc.DialOption{
-        grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
-    },
+type SimpleRouter struct{}
+
+func (r *SimpleRouter) Parse(req *http.Request) (cluster, targetAddress string, err error) {
+    // Extract cluster name from path: /cluster-name/service-path
+    path := req.URL.Path[1:] // Remove leading /
+    if len(path) == 0 {
+        return "", "", fmt.Errorf("missing cluster name")
+    }
+
+    // Find first slash to separate cluster name from service path
+    parts := strings.SplitN(path, "/", 2)
+    cluster = parts[0]
+
+    // Route to target service (could be dynamic based on path/headers)
+    targetAddress = "localhost:8080"
+
+    return cluster, targetAddress, nil
 }
 ```
 
-### Usage Examples
+The Router enables flexible routing strategies based on:
+- URL path segments
+- HTTP headers
+- Query parameters
+- Request method
+- Custom business logic
 
-**Hub Server with TLS:**
-```bash
-# With TLS certificates
-./test-hub-server -cert-file=server.crt -key-file=server.key
+## Core Abstractions
 
-# Without TLS (development only)
-./test-hub-server
-```
+### Packet
+The atomic unit of data transmission between hub cluster and managed cluster through gRPC stream. Packets carry both data information and control information.
 
-**Agent Client with TLS:**
-```bash
-# With TLS (default)
-./test-agent-client -hub-address=hub.example.com:8443 -cluster-name=my-cluster
+Key fields:
+- `conn_id`: Used to associate requests and responses, implements multiplexing ID
+- `code`: Control code (DATA, ERROR, DRAIN) that defines the packet's intent
+- `data`: Business payload, only meaningful when code = DATA
+- `target_address`: Target service address for routing (used during connection establishment)
 
-# With TLS but skip verification (testing)
-./test-agent-client -hub-address=localhost:8443 -cluster-name=my-cluster -skip-tls-verify
+The agent dispatches packet data to target services on the managed cluster based on the `target_address` field.
 
-# Without TLS (development only)
-./test-agent-client -hub-address=localhost:8443 -cluster-name=my-cluster -insecure
-```
+### Tunnel
+The persistent gRPC connection between a managed cluster's agent and the Hub. Each cluster has exactly one active Tunnel (per cluster). When an agent connects, it creates a Tunnel that remains active until the agent disconnects or a new agent from the same cluster replaces it.
 
-For detailed TLS configuration examples, see the test tools:
-- [`cmd/test-hub-server/`](./cmd/test-hub-server/) - Hub server with TLS support
-- [`cmd/test-agent-client/`](./cmd/test-agent-client/) - Agent client with TLS options
+### Packet Connection (Server Side)
+Each packet connection corresponds to an actual client (console, kubectl, or operator). When the server receives an HTTP request from a client:
+1. The Router determines the target managed cluster and service based on the request
+2. The packet connection hijacks the underlying TCP connection from HTTP using a hijacker, allowing direct read/write access to the TCP data stream
+3. Data is then forwarded through the tunnel to the agent
 
-## Terminology
-
-**Tunnel**: The persistent gRPC connection between a managed cluster's agent and the Hub. Each cluster has exactly one active Tunnel. When an agent connects, it creates a Tunnel that remains active until the agent disconnects or a new agent from the same cluster replaces it.
-
-**PacketStream**: A logical stream within a Tunnel used for multiplexing multiple concurrent requests/responses. Each HTTP request from a client creates a new PacketStream that carries the request data through the tunnel to the target cluster and back.
-
-**Connection**: Network connections between mctunnel components and external services. For example:
-- On the managed cluster side: connections between the mct agent and kube-apiserver or other local services
-- On the hub cluster side: connections between the mct hub and user clients (console, kubectl, operators, etc.)
+### Packet Connection (Agent Side)
+Each packet connection corresponds to a `net.Conn` that connects to a target service on the managed cluster. The agent:
+1. Receives packets from the hub through the tunnel
+2. Establishes connections to target services based on the `target_address` field
+3. Forwards data between the tunnel and the target service connection
 
 ## Contribution Guide
 
