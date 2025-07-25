@@ -16,7 +16,7 @@ import (
 	"github.com/cenkalti/backoff/v5"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/xuezhaojun/multiclustertunnel/pkg/agent"
-	"github.com/xuezhaojun/multiclustertunnel/pkg/hub"
+	"github.com/xuezhaojun/multiclustertunnel/pkg/server"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -34,7 +34,7 @@ type TestFramework struct {
 	t           TestingInterface
 	ctx         context.Context
 	cancel      context.CancelFunc
-	hubServer   *hub.Server
+	hubServer   *server.Server
 	hubRouter   *TestHubRouter
 	agents      map[string]*agent.Client
 	mockServers map[string]*MockServer
@@ -416,7 +416,7 @@ func (f *TestFramework) startHubServer() error {
 	// Router is already initialized in NewTestFramework
 
 	// Create hub server configuration with random ports
-	config := &hub.Config{
+	config := &server.Config{
 		GRPCListenAddress: "127.0.0.1:0", // Let the server pick a random port
 		HTTPListenAddress: "127.0.0.1:0", // Let the server pick a random port
 		Router:            f.hubRouter,
@@ -431,7 +431,7 @@ func (f *TestFramework) startHubServer() error {
 
 	// Create the hub server
 	var err error
-	f.hubServer, err = hub.New(config)
+	f.hubServer, err = server.New(config)
 	if err != nil {
 		return fmt.Errorf("failed to create hub server: %w", err)
 	}

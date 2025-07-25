@@ -41,18 +41,18 @@ proto-gen: install-tools ## Generate Go code from proto files
 	@echo "Proto generation completed!"
 
 # Build targets
-.PHONY: build-hub-server
-build-hub-server:
+.PHONY: build-server
+build-server:
 	@mkdir -p _output
-	go build -o _output/test-hub-server ./cmd/test-hub-server/
+	go build -o _output/test-hub ./cmd/test-hub/
 
-.PHONY: build-agent-client
-build-agent-client:
+.PHONY: build-agent
+build-agent:
 	@mkdir -p _output
-	go build -o _output/test-agent-client ./cmd/test-agent-client/
+	go build -o _output/test-agent ./cmd/test-agent/
 
 .PHONY: build-all
-build-all: build-hub-server build-agent-client ## Build all binaries
+build-all: build-server build-agent ## Build all binaries
 
 .PHONY: clean
 clean: ## Clean build artifacts
