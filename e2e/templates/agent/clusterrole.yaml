@@ -1,0 +1,113 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Name }}
+  labels:
+    app.kubernetes.io/name: multiclustertunnel
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/part-of: multiclustertunnel-e2e
+    app.kubernetes.io/instance: {{ .Name }}
+    e2e-test: "true"
+  annotations:
+    description: "Cluster role for MultiClusterTunnel agent component in e2e tests"
+rules:
+# Core API resources that the agent needs to access for proxying requests
+- apiGroups: [""]
+  resources: ["nodes", "nodes/status", "nodes/proxy"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["services", "services/proxy", "endpoints"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods", "pods/status", "pods/log", "pods/exec", "pods/portforward", "pods/proxy"]
+  verbs: ["get", "list", "watch", "create"]
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["persistentvolumes", "persistentvolumeclaims"]
+  verbs: ["get", "list", "watch"]
+
+# Apps API resources
+- apiGroups: ["apps"]
+  resources: ["deployments", "deployments/scale", "replicasets", "daemonsets", "statefulsets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Extensions API resources
+- apiGroups: ["extensions"]
+  resources: ["deployments", "deployments/scale", "replicasets", "daemonsets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Batch API resources
+- apiGroups: ["batch"]
+  resources: ["jobs", "cronjobs"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Networking API resources
+- apiGroups: ["networking.k8s.io"]
+  resources: ["networkpolicies", "ingresses"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Storage API resources
+- apiGroups: ["storage.k8s.io"]
+  resources: ["storageclasses", "volumeattachments"]
+  verbs: ["get", "list", "watch"]
+
+# Metrics API resources (if available)
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["nodes", "pods"]
+  verbs: ["get", "list"]
+
+# Custom resources that might be needed
+- apiGroups: ["apiextensions.k8s.io"]
+  resources: ["customresourcedefinitions"]
+  verbs: ["get", "list", "watch"]
+
+# Authentication and authorization for token review and user impersonation
+- apiGroups: ["authentication.k8s.io"]
+  resources: ["tokenreviews"]
+  verbs: ["create"]
+- apiGroups: ["authorization.k8s.io"]
+  resources: ["subjectaccessreviews", "selfsubjectaccessreviews", "selfsubjectrulesreviews"]
+  verbs: ["create"]
+
+# RBAC resources for user impersonation
+- apiGroups: ["rbac.authorization.k8s.io"]
+  resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+  verbs: ["get", "list", "watch"]
+
+# Events for logging and debugging
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["get", "list", "watch", "create"]
+
+# Leases for coordination (if needed)
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Policy API resources
+- apiGroups: ["policy"]
+  resources: ["poddisruptionbudgets"]
+  verbs: ["get", "list", "watch"]
+
+# Autoscaling API resources
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Node API resources for node management
+- apiGroups: [""]
+  resources: ["nodes/status"]
+  verbs: ["patch"]
+
+# Service account impersonation (for hub cluster access)
+- apiGroups: [""]
+  resources: ["serviceaccounts"]
+  verbs: ["impersonate"]
+- apiGroups: [""]
+  resources: ["groups", "users"]
+  verbs: ["impersonate"]

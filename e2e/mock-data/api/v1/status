@@ -1,0 +1,17 @@
+{
+  "api_version": "v1",
+  "status": "running",
+  "service": "mock-backend-api",
+  "endpoints": [
+    "/",
+    "/health",
+    "/api/v1/status",
+    "/api/v1/test"
+  ],
+  "features": {
+    "authentication": false,
+    "rate_limiting": false,
+    "caching": false
+  },
+  "environment": "e2e-testing"
+}

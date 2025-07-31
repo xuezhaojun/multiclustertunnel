@@ -66,29 +66,29 @@ When one connection fails, the agent can immediately switch to other pre-establi
 2. **Increased Resource Consumption**: Each agent maintains N gRPC connections to Hub instances, consuming more memory and network resources
 3. **Reinventing the Wheel**: Implements application-layer service discovery and load balancing, duplicating capabilities that Kubernetes and service meshes already provide
 
-### MultiClusterTunnel: Platform-Native HA (Active-Passive at Agent)
+### MultiClusterTunnel: Simplified Single-Instance Architecture
 
 **Architecture Overview:**
 
-- **Agent Side (ServiceProxy)**: Deployed as a Kubernetes Deployment with multiple pods using leader election
-- **Leader Election**: Uses client-go's leaderelection library to compete for a Lease lock
+- **Agent Side (ServiceProxy)**: Can be deployed as a Kubernetes Deployment with multiple pods using leader election for HA
+- **Leader Election**: Uses client-go's leaderelection library to compete for a Lease lock (when HA is needed)
 - **Active-Passive Pattern**: Only the leader pod maintains the tunnel; followers remain dormant until leadership changes
-- **Hub Side (HubGateway)**: Deployed as a standard Kubernetes Deployment behind a Service for cloud-native load balancing
+- **Hub Side (HubGateway)**: Runs as a single instance in a resource-sufficient pod for simplicity in the first version
 
 **Failover Mechanism:**
 When the leader pod fails, its Lease expires after the configured duration, triggering a new leader election. The new leader establishes a fresh tunnel to the Hub.
 
 **Advantages:**
 
-1. **Extreme Simplicity**: Core Agent and Hub code is completely agnostic to HA concerns - complexity is delegated to the platform
-2. **Best Practice Adherence**: Follows "let the platform do what the platform does best" - a core cloud-native principle
-3. **Resource Efficiency**: Each managed cluster maintains exactly one active tunnel at any time
-4. **Operations Friendly**: Any Kubernetes operator can understand and troubleshoot the Deployment + Service + Lease pattern
+1. **Extreme Simplicity**: Core Agent and Hub code focuses on tunneling logic without complex HA concerns
+2. **Resource Efficiency**: Each managed cluster maintains exactly one active tunnel at any time
+3. **Operations Friendly**: Simple deployment model that any Kubernetes operator can understand
+4. **Flexible HA Options**: Agent-side HA can be added when needed using standard Kubernetes patterns
 
 **Disadvantages:**
 
-1. **Longer Failover Time**: Recovery time depends on Lease duration settings (typically 15-30 seconds), not instantaneous
-2. **Platform Dependency**: Tightly coupled with Kubernetes platform capabilities
+1. **Single Point of Failure**: Hub runs as a single instance (can be mitigated by running in a highly available pod)
+2. **Agent Failover Time**: When using leader election, recovery time depends on Lease duration settings (typically 15-30 seconds)
 
 ### Analysis: Why MultiClusterTunnel's Approach is More "Cloud-Native"
 

@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  # MultiClusterTunnel Server
+  mctunnel-server:
+    build:
+      context: .
+      dockerfile: build/server/Dockerfile
+    image: mctunnel-server:latest
+    container_name: mctunnel-server-e2e
+    ports:
+      - "8080:8080"  # HTTP port
+      - "8443:8443"  # gRPC port
+      - "8090:8090"  # Health/metrics port
+    environment:
+      - LOG_LEVEL=2
+    command:
+      - --grpc-address=:8443
+      - --http-address=:8080
+      - --v=2
+    healthcheck:
+      test: ["CMD", "/server", "--help"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - mctunnel-e2e
+    restart: unless-stopped
+
+  # MultiClusterTunnel Agent
+  mctunnel-agent:
+    build:
+      context: .
+      dockerfile: build/agent/Dockerfile
+    image: mctunnel-agent:latest
+    container_name: mctunnel-agent-e2e
+    depends_on:
+      mctunnel-server:
+        condition: service_healthy
+    environment:
+      - LOG_LEVEL=2
+      - HUB_ADDRESS=mctunnel-server:8443
+      - CLUSTER_NAME=test-cluster
+    command:
+      - --hub-address=mctunnel-server:8443
+      - --cluster-name=test-cluster
+      - --socket-path=/tmp/multiclustertunnel.sock
+      - --hub-kubeconfig=/etc/kubeconfig/config
+      - --insecure
+      - --v=2
+    volumes:
+      - agent-socket:/tmp
+      - ./e2e/test-kubeconfig.yaml:/etc/kubeconfig/config:ro
+    healthcheck:
+      test: ["CMD", "test", "-S", "/tmp/multiclustertunnel.sock"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - mctunnel-e2e
+    restart: unless-stopped
+
+  # Mock backend service for testing
+  mock-backend:
+    image: nginx:alpine
+    container_name: mock-backend-e2e
+    ports:
+      - "9090:80"
+    volumes:
+      - ./e2e/mock-data:/usr/share/nginx/html:ro
+    networks:
+      - mctunnel-e2e
+    restart: unless-stopped
+
+networks:
+  mctunnel-e2e:
+    driver: bridge
+    name: mctunnel-e2e-network
+
+volumes:
+  agent-socket:
+    driver: local

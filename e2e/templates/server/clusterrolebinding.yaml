@@ -1,0 +1,20 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Name }}
+  labels:
+    app.kubernetes.io/name: multiclustertunnel
+    app.kubernetes.io/component: server
+    app.kubernetes.io/part-of: multiclustertunnel-e2e
+    app.kubernetes.io/instance: {{ .Name }}
+    e2e-test: "true"
+  annotations:
+    description: "Cluster role binding for MultiClusterTunnel server component in e2e tests"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Name }}
+subjects:
+- kind: ServiceAccount
+  name: {{ .Name }}
+  namespace: {{ .Namespace }}

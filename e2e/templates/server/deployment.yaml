@@ -1,0 +1,196 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Name }}
+  namespace: {{ .Namespace }}
+  labels:
+    app.kubernetes.io/name: multiclustertunnel
+    app.kubernetes.io/component: server
+    app.kubernetes.io/part-of: multiclustertunnel-e2e
+    app.kubernetes.io/instance: {{ .Name }}
+    e2e-test: "true"
+  annotations:
+    description: "Deployment for MultiClusterTunnel server component in e2e tests"
+spec:
+  replicas: {{ .Replicas | default 1 }}
+  strategy:
+    type: Recreate  # Ensure clean restart for single instance
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: multiclustertunnel
+      app.kubernetes.io/component: server
+      app.kubernetes.io/instance: {{ .Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: multiclustertunnel
+        app.kubernetes.io/component: server
+        app.kubernetes.io/part-of: multiclustertunnel-e2e
+        app.kubernetes.io/instance: {{ .Name }}
+        e2e-test: "true"
+      annotations:
+        description: "Pod template for MultiClusterTunnel server in e2e tests"
+    spec:
+      serviceAccountName: {{ .Name }}
+      terminationGracePeriodSeconds: 30  # Allow graceful connection cleanup
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532  # nonroot user
+        fsGroup: 65532
+      containers:
+      - name: server
+        image: {{ .Image }}
+        imagePullPolicy: {{ .ImagePullPolicy | default "IfNotPresent" }}
+        command: ["/server"]
+        args:
+        - --grpc-address=:8443
+        - --http-address=:8080
+        {{- if .EnableTLS }}
+        - --grpc-cert-file=/etc/certs/tls.crt
+        - --grpc-key-file=/etc/certs/tls.key
+        {{- end }}
+        - --v={{ .LogLevel | default "2" }}
+        ports:
+        - name: grpc
+          containerPort: 8443
+          protocol: TCP
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: health
+          containerPort: 8090
+          protocol: TCP
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        {{- if .ExtraEnvVars }}
+        {{- range .ExtraEnvVars }}
+        - name: {{ .Name }}
+          value: {{ .Value | quote }}
+        {{- end }}
+        {{- end }}
+        resources:
+          requests:
+            cpu: {{ .ResourceRequests.CPU | default "100m" }}
+            memory: {{ .ResourceRequests.Memory | default "128Mi" }}
+          limits:
+            cpu: {{ .ResourceLimits.CPU | default "500m" }}
+            memory: {{ .ResourceLimits.Memory | default "512Mi" }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        {{- if .EnableTLS }}
+        - name: server-certs
+          mountPath: /etc/certs
+          readOnly: true
+        - name: ca-certs
+          mountPath: /etc/ca-certs
+          readOnly: true
+        {{- end }}
+        {{- if .ExtraVolumeMounts }}
+        {{- range .ExtraVolumeMounts }}
+        - name: {{ .Name }}
+          mountPath: {{ .MountPath }}
+          readOnly: {{ .ReadOnly | default true }}
+        {{- end }}
+        {{- end }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65532
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      {{- if .EnableTLS }}
+      - name: server-certs
+        secret:
+          secretName: {{ .ServerCertSecret }}
+          defaultMode: 0400
+      - name: ca-certs
+        secret:
+          secretName: {{ .CACertSecret }}
+          defaultMode: 0400
+      {{- end }}
+      {{- if .ExtraVolumes }}
+      {{- range .ExtraVolumes }}
+      - name: {{ .Name }}
+        {{- if .Secret }}
+        secret:
+          secretName: {{ .Secret.SecretName }}
+          defaultMode: {{ .Secret.DefaultMode | default 0400 }}
+        {{- else if .ConfigMap }}
+        configMap:
+          name: {{ .ConfigMap.Name }}
+          defaultMode: {{ .ConfigMap.DefaultMode | default 0644 }}
+        {{- else if .EmptyDir }}
+        emptyDir: {}
+        {{- end }}
+      {{- end }}
+      {{- end }}
+      nodeSelector:
+        {{- if .NodeSelector }}
+        {{- range $key, $value := .NodeSelector }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+        {{- else }}
+        kubernetes.io/os: linux
+        {{- end }}
+      tolerations:
+      {{- if .Tolerations }}
+      {{- range .Tolerations }}
+      - key: {{ .Key }}
+        operator: {{ .Operator | default "Equal" }}
+        value: {{ .Value | default "" }}
+        effect: {{ .Effect }}
+        {{- if .TolerationSeconds }}
+        tolerationSeconds: {{ .TolerationSeconds }}
+        {{- end }}
+      {{- end }}
+      {{- end }}
+      affinity:
+        {{- if .Affinity }}
+        {{- if .Affinity.PodAntiAffinity }}
+        podAntiAffinity:
+          {{- if .Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution }}
+          preferredDuringSchedulingIgnoredDuringExecution:
+          {{- range .Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution }}
+          - weight: {{ .Weight }}
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  {{- range $key, $value := .PodAffinityTerm.LabelSelector.MatchLabels }}
+                  {{ $key }}: {{ $value }}
+                  {{- end }}
+              topologyKey: {{ .PodAffinityTerm.TopologyKey }}
+          {{- end }}
+          {{- end }}
+        {{- end }}
+        {{- end }}

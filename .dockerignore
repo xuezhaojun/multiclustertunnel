@@ -1,0 +1,61 @@
+# Git files
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+docs/
+anp-e2e.md
+CLAUDE.md
+README.md
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Build artifacts
+_output/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test files and coverage
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+
+# E2E test artifacts
+e2e/certs/
+e2e/test-*.go
+
+# Scripts (not needed in container)
+scripts/
+
+# Integration tests
+tests/
+
+# Architecture diagrams
+*.excalidraw.json
+
+# License (already in base image)
+LICENSE

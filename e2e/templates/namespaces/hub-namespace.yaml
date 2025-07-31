@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Name }}
+  labels:
+    app.kubernetes.io/name: multiclustertunnel
+    app.kubernetes.io/component: hub
+    app.kubernetes.io/part-of: multiclustertunnel-e2e
+    app.kubernetes.io/version: {{ .Version | default "latest" }}
+    app.kubernetes.io/managed-by: e2e-framework
+    e2e-test: "true"
+    test-type: e2e
+    component-role: server
+  annotations:
+    description: "Namespace for MultiClusterTunnel hub/server components in e2e tests"
+    e2e-framework.io/test-namespace: "true"
+    e2e-framework.io/component: "hub"
+    e2e-framework.io/created-by: "multiclustertunnel-e2e"
+    e2e-framework.io/test-id: {{ .TestID | default "default" }}

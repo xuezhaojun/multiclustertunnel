@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MultiClusterTunnel E2E Mock Backend</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header {
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        .status {
+            background-color: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        .info {
+            background-color: #e7f3ff;
+            color: #0c5460;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        .endpoint {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-left: 4px solid #007bff;
+            margin: 10px 0;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="header">MultiClusterTunnel E2E Mock Backend</h1>
+        
+        <div class="status">
+            ✅ Mock backend service is running successfully!
+        </div>
+        
+        <div class="info">
+            <strong>Purpose:</strong> This is a mock backend service used for testing the MultiClusterTunnel e2e functionality.
+            It simulates a real backend service that would be accessed through the tunnel.
+        </div>
+        
+        <h2>Available Endpoints</h2>
+        
+        <div class="endpoint">
+            <strong>GET /</strong> - This page (service status)
+        </div>
+        
+        <div class="endpoint">
+            <strong>GET /health</strong> - Health check endpoint
+        </div>
+        
+        <div class="endpoint">
+            <strong>GET /api/v1/status</strong> - API status endpoint
+        </div>
+        
+        <div class="endpoint">
+            <strong>GET /api/v1/test</strong> - Test data endpoint
+        </div>
+        
+        <h2>Service Information</h2>
+        <ul>
+            <li><strong>Service:</strong> MultiClusterTunnel E2E Mock Backend</li>
+            <li><strong>Version:</strong> 1.0.0</li>
+            <li><strong>Environment:</strong> E2E Testing</li>
+            <li><strong>Container:</strong> nginx:alpine</li>
+        </ul>
+        
+        <h2>Testing Instructions</h2>
+        <p>This service should be accessed through the MultiClusterTunnel proxy. Test requests should be sent to the hub server with the appropriate cluster and service routing.</p>
+        
+        <p><strong>Example tunnel request:</strong></p>
+        <div class="endpoint">
+            curl -H "Authorization: Bearer &lt;token&gt;" \<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;http://hub-server/test-cluster/api/v1/namespaces/default/services/http:mock-backend:80/proxy-service/health
+        </div>
+    </div>
+</body>
+</html>

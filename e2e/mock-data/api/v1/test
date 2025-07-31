@@ -1,0 +1,31 @@
+{
+  "message": "Hello from MultiClusterTunnel E2E Mock Backend!",
+  "test_data": {
+    "cluster": "test-cluster",
+    "namespace": "default",
+    "service": "mock-backend",
+    "tunnel_working": true
+  },
+  "request_info": {
+    "method": "GET",
+    "path": "/api/v1/test",
+    "timestamp": "2024-01-01T00:00:00Z"
+  },
+  "test_cases": [
+    {
+      "name": "basic_connectivity",
+      "description": "Test basic HTTP connectivity through tunnel",
+      "expected_status": 200
+    },
+    {
+      "name": "service_discovery",
+      "description": "Test service discovery and routing",
+      "expected_response": "success"
+    },
+    {
+      "name": "multi_namespace",
+      "description": "Test cross-namespace communication",
+      "expected_behavior": "proxy_request"
+    }
+  ]
+}

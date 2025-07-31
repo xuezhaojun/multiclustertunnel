@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Name }}
+  namespace: {{ .Namespace }}
+  labels:
+    app.kubernetes.io/name: multiclustertunnel
+    app.kubernetes.io/component: server
+    app.kubernetes.io/part-of: multiclustertunnel-e2e
+    app.kubernetes.io/instance: {{ .Name }}
+    e2e-test: "true"
+  annotations:
+    description: "Service for MultiClusterTunnel server component in e2e tests"
+spec:
+  type: {{ .ServiceType | default "ClusterIP" }}
+  selector:
+    app.kubernetes.io/name: multiclustertunnel
+    app.kubernetes.io/component: server
+    app.kubernetes.io/instance: {{ .Name }}
+  ports:
+  # gRPC port for agent connections
+  - name: grpc
+    port: 8443
+    targetPort: grpc
+    protocol: TCP
+    {{- if eq (.ServiceType | default "ClusterIP") "NodePort" }}
+    nodePort: {{ .GRPCNodePort | default 30443 }}
+    {{- end }}
+  # HTTP port for client requests
+  - name: http
+    port: 8080
+    targetPort: http
+    protocol: TCP
+    {{- if eq (.ServiceType | default "ClusterIP") "NodePort" }}
+    nodePort: {{ .HTTPNodePort | default 30080 }}
+    {{- end }}
+  # Health check port (if needed)
+  - name: health
+    port: 8090
+    targetPort: health
+    protocol: TCP
+    {{- if eq (.ServiceType | default "ClusterIP") "NodePort" }}
+    nodePort: {{ .HealthNodePort | default 30090 }}
+    {{- end }}

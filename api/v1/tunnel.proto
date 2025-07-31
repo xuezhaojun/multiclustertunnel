@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package tunnel.v1;
 
-option go_package = "github.com/xuezhaojun/multiclustertunnel/api/v1;tunnelv1";
+option go_package = "github.com/xuezhaojun/multiclustertunnel/api/v1";
 
 service TunnelService {
   // The core RPC of the tunnel, a long-lived bidirectional stream
@@ -15,34 +15,19 @@ enum ControlCode {
   // Default value, indicates this is a standard business data packet
   DATA = 0;
 
-  // Indicates that the data stream corresponding to a stream_id has ended normally
-  // The data field should be empty when sending this packet
-  STREAM_EOF = 1;
-
-  // Indicates an error occurred in processing the stream for a stream_id
+  // Indicates an error occurred in processing the CONN for a conn_id
   // The error_message field should contain error details
-  STREAM_ERROR = 2;
+  ERROR = 1;
 
-  // Sent by the Hub side to check tunnel health
-  // stream_id can be 0 or a random number
-  PING = 3;
-
-  // Sent by the Agent side in response to PING, to confirm tunnel health
-  // stream_id should match the received PING packet
-  PONG = 4;
-
-  // Graceful shutdown: Sent by either side to notify the peer it will soon go offline and should not assign new streams
-  DRAIN = 5;
-
-  // Explicit acknowledgement of stream closure, sent in response to STREAM_EOF for strict confirmation
-  STREAM_EOF_ACK = 6;
+  // Graceful shutdown: Sent by agent to hub to indicate it's about to go offline
+  DRAIN = 2;
 }
 
 // Packet is the atomic unit transmitted in the tunnel
 message Packet {
   // Used to associate requests and responses, implements multiplexing ID
   // For tunnel-level messages (such as PING/PONG/DRAIN), can be 0
-  int64 stream_id = 1;
+  int64 conn_id = 1;
 
   // [Key optimization] The intent code of the packet, makes processing logic clearer
   ControlCode code = 2;
@@ -50,13 +35,9 @@ message Packet {
   // Business payload, only meaningful when code = DATA
   bytes data = 3;
 
-  // Metadata, used for routing, tracing, etc., provides design flexibility
-  // Strongly recommend to standardize key names for routing (e.g., {"host": "...", "port": "..."})
-  // and document any required headers for interoperability.
-  map<string, string> headers = 4;
+  // Error message, only meaningful when code = ERROR
+  string error_message = 4;
 
-  // Error message, only meaningful when code = STREAM_ERROR
-  string error_message = 5;
-
-  // Note: Stream lifecycle is implicit. Developers should carefully handle edge cases such as receiving DATA for a closed stream_id.
+  // Note: Connection lifecycle is implicit. Developers should carefully handle edge cases such as receiving DATA for a closed conn_id.
+  // Note: Target address routing is now handled by the service-proxy on the agent side.
 }
